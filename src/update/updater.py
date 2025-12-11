@@ -133,6 +133,72 @@ exit
         return False, str(e)
 
 
+def check_for_updates_and_prompt() -> bool:
+    """
+    Verifica se há uma atualização disponível e pergunta ao usuário se ele
+    deseja instalá-la, iniciando o processo de download e reinício.
+    
+    Retorna True se o processo de atualização foi iniciado (e o programa deve fechar).
+    """
+    
+    # 1. Checa se há atualização disponível
+    update_available, local_version, latest_version = is_update_available()
+    
+    if not update_available:
+        if local_version and latest_version:
+             logger.info("BlazeScan está na versão mais recente. Continuar execução.")
+        # Se não houver atualização ou se a checagem falhou, retorna False para continuar a execução.
+        return False
+        
+    # --- ATUALIZAÇÃO DISPONÍVEL ---
+    
+    print("\n" + "=" * 60)
+    print(f"📢 NOVA ATUALIZAÇÃO DISPONÍVEL: v{latest_version}")
+    print(f"Versão Atual: v{local_version}")
+    
+    # Verifica o caminho do executável atual para passar para a função de download
+    try:
+        if getattr(sys, 'frozen', False):
+            # Estamos rodando como executável PyInstaller
+            local_executable_path = sys.executable
+        else:
+            # Estamos rodando a partir do código-fonte (Debug/Desenvolvimento)
+            # Neste caso, não faz sentido atualizar, mas podemos simular.
+            logger.warning("Rodando em ambiente de desenvolvimento. Pulando atualização automática.")
+            print("Atualização disponível, mas a instalação automática é ignorada no modo Dev.")
+            return False 
+            
+    except Exception as e:
+        logger.error(f"Não foi possível determinar o caminho do executável: {e}")
+        return False
+
+    # 2. Pergunta ao usuário
+    try:
+        user_input = input("Deseja baixar e instalar a atualização agora? (S/n): ").lower().strip()
+    except EOFError:
+        # Evita crash em ambientes automatizados ou pipes
+        user_input = 'n'
+
+    if user_input == 's' or user_input == 'sim' or user_input == '':
+        print("\nINICIANDO ATUALIZAÇÃO...")
+        print("O programa fechará e será reiniciado automaticamente.")
+        
+        # 3. Inicia o download e a substituição
+        success, message = download_update(latest_version, local_executable_path)
+        
+        print(f"STATUS DA ATUALIZAÇÃO: {message}")
+        
+        if success:
+            # Retorna True para que o 'main' chame sys.exit()
+            return True 
+        else:
+            # A falha pode ser de download. Deixa o usuário continuar, se desejar.
+            input("\nPressione ENTER para continuar sem atualizar...") 
+            return False
+    else:
+        print("Atualização adiada. Continuando com a versão atual.")
+        return False
+
 def download_update(latest_version: str, local_executable_path: str) -> Tuple[bool, str]:
     # ... (função download_update permanece a mesma) ...
     download_url = GITHUB_RELEASE_DOWNLOAD_URL.format(version=latest_version)

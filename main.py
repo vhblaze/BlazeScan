@@ -7,7 +7,7 @@ import sys
 import os
 import logging
 import ctypes 
-import customtkinter as ctk # Adicionado, pois main.py deve configurar o CTK
+import customtkinter as ctk
 from typing import NoReturn
 
 # --- CONFIGURAÇÃO INICIAL E LOGGING ---
