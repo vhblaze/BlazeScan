@@ -199,6 +199,39 @@ def check_for_updates_and_prompt() -> bool:
         print("Atualização adiada. Continuando com a versão atual.")
         return False
 
+def launch_replacement_script(new_exe_path: str, old_exe_path: str) -> Tuple[bool, str]:
+    """
+    Cria e executa um script temporário (.bat) que fecha o programa atual,
+    substitui o executável e reinicia a nova versão.
+    """
+    old_exe_dir = os.path.dirname(old_exe_path)
+    
+    script_content = f"""
+@echo off
+echo Aguardando o BlazeScan atual fechar...
+:: 🎯 FORÇA O ENCERRAMENTO DO EXECUTÁVEL ANTERIOR PARA LIBERAR O ARQUIVO
+taskkill /F /IM "{EXECUTABLE_NAME}" > NUL 2>&1
+timeout /t 3 /nobreak > NUL
+
+echo Substituindo executável...
+ren "{old_exe_path}" "{EXECUTABLE_NAME}.old" > NUL 2>&1
+
+:: Move o novo executável para o local do antigo
+move /Y "{new_exe_path}" "{old_exe_path}"
+
+:: Limpa o backup se o move for bem-sucedido
+del "{old_exe_path}.old" > NUL 2>&1
+
+echo Substituição concluída. Iniciando a nova versão...
+start "" "{old_exe_path}"
+
+:: Fecha este script temporário e a janela do CMD
+del "%~f0"
+exit
+"""
+    # Salva o script no diretório temporário
+    bat_path = os.path.join(tempfile.gettempdir(), "update_blazescan.bat")
+
 def download_update(latest_version: str, local_executable_path: str) -> Tuple[bool, str]:
     # ... (função download_update permanece a mesma) ...
     download_url = GITHUB_RELEASE_DOWNLOAD_URL.format(version=latest_version)
