@@ -6,29 +6,33 @@ BlazeScan - Ponto de entrada principal
 import sys
 import os
 import logging
-import ctypes  # Módulo nativo para interagir com o sistema operacional
+import ctypes 
+import customtkinter as ctk # Adicionado, pois main.py deve configurar o CTK
 from typing import NoReturn
 
 # --- CONFIGURAÇÃO INICIAL E LOGGING ---
 
+# Configuração do Logging para console
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger('BlazeScan')
+logger.setLevel(logging.INFO)
 
-# Adiciona o diretório raiz do projeto ao sys.path para importações absolutas (necessário para a estrutura do pacote)
+# Adiciona o diretório raiz do projeto ao sys.path
 try:
     project_root = os.path.dirname(os.path.abspath(__file__))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 except Exception as e:
-    logging.error(f"Não foi possível configurar o caminho de importação: {e}")
+    logger.error(f"Não foi possível configurar o caminho de importação: {e}")
     sys.exit(1)
 
-# Importa a UI após configurar o path
+# Importa a classe App
 try:
-    # Lembre-se: Mantenha a importação absoluta, ex: from src.frontend.ui import start_ui
-    from src.frontend.ui import start_ui
+    # 🚨 CORREÇÃO: Importar a classe App, não a função start_ui
+    from src.frontend.ui import App 
 except ImportError as e:
-    logging.error(f"Falha ao carregar a interface (UI). Erro: {e}")
-    logging.info("Verifique se as dependências (ex: customtkinter) estão instaladas e se as importações são absolutas (ex: from src...).")
+    logger.error(f"Falha ao carregar a interface (UI). Erro: {e}")
+    logger.info("Verifique se as dependências (ex: customtkinter) estão instaladas e se as importações são absolutas (ex: from src...).")
     sys.exit(1)
 
 
@@ -37,77 +41,63 @@ except ImportError as e:
 def is_admin() -> bool:
     """Verifica se o script está rodando com privilégios de administrador."""
     try:
-        # Retorna True se o token de acesso indicar que o usuário é administrador
         return ctypes.windll.shell32.IsUserAnAdmin()
     except Exception:
-        # Em caso de erro (ex: sistema não Windows), assume que não é admin
         return False
 
 def elevate_privileges():
-    """
-    Tenta reiniciar o script com permissões de administrador.
-    Exibe o prompt UAC do Windows.
-    """
-    if not is_admin():
+    """Tenta reiniciar o script com permissões de administrador."""
+    if not is_admin() and sys.platform == 'win32':
         script = os.path.abspath(sys.argv[0])
-        # Usa ShellExecuteW com o verbo "runas" para solicitar elevação de privilégio
-        # Isso fará o Windows exibir a caixa "Deseja permitir que este app..."
         ret = ctypes.windll.shell32.ShellExecuteW(
-            None,      # hWnd (handle da janela)
-            "runas",   # Verbo: solicitar execução como administrador
-            sys.executable,  # Caminho para o executável Python
-            script,    # Argumento: o próprio script principal
-            None,      # Diretório de trabalho
-            1          # SW_SHOWNORMAL (mostra a janela normalmente)
+            None,      
+            "runas",   
+            sys.executable,
+            f'"{script}"', # Passa o caminho do script entre aspas
+            None,      
+            1          
         )
         
-        # O valor ret 42 indica que a operação foi bem-sucedida, mas o programa atual está sendo fechado.
-        # Sai do programa atual, pois ele será reaberto com privilégios elevados.
+        # Se a operação for bem-sucedida, o programa atual é fechado
         if ret > 32:
-             sys.exit(0)
+            sys.exit(0)
         else:
-            # Caso a elevação falhe (e.g., usuário cancela no UAC ou erro)
-            logging.error("Falha ao solicitar permissões de administrador. O programa pode não funcionar corretamente.")
-            # Continuamos para permitir que o usuário veja a UI, mas com funcionalidade limitada.
+            logger.error("Falha ao solicitar permissões de administrador. O programa pode não funcionar corretamente.")
 
 
-# --- FUNÇÕES DE EXECUÇÃO PRINCIPAL ---
-
-def check_os() -> bool:
-    """Verifica se o sistema operacional é Windows."""
-    if sys.platform != 'win32':
-        logging.warning("AVISO: Este programa foi projetado para Windows.")
-        response = input("Deseja continuar mesmo assim? (s/n): ")
-        return response.lower() == 's'
-    return True
-
+# --- FUNÇÃO DE EXECUÇÃO PRINCIPAL ---
 
 def main() -> NoReturn:
     """Função principal que inicia a aplicação BlazeScan."""
 
-    # 1. VERIFICA E ELEVA PRIVILÉGIOS (NOVA ETAPA)
+    # 1. VERIFICA E ELEVA PRIVILÉGIOS 
     elevate_privileges() 
-    # Se a elevação for bem-sucedida, o código daqui para baixo só será executado na nova instância Admin.
 
-    # 2. VERIFICA SISTEMA OPERACIONAL
-    if not check_os():
-        logging.info("Encerrando a aplicação.")
-        sys.exit(0)
+    # 2. VERIFICA SISTEMA OPERACIONAL (Simplificado)
+    if sys.platform != 'win32':
+        logger.warning("AVISO: Este programa foi projetado para Windows e pode não funcionar corretamente aqui.")
     
     # Inicia a interface gráfica
-    logging.info("Iniciando BlazeScan...")
+    logger.info("Iniciando BlazeScan...")
     if is_admin():
-        logging.info("Executando com privilégios de Administrador.")
+        logger.info("Executando com privilégios de Administrador.")
     else:
-        logging.warning("Executando sem privilégios de Administrador. Algumas funções podem falhar.")
+        logger.warning("Executando sem privilégios de Administrador. Algumas funções (como Otimização de Disco) podem falhar.")
         
     try:
-        start_ui()
+        # Configurações globais do CTk (devem estar fora da classe App)
+        ctk.set_appearance_mode("System")
+        ctk.set_default_color_theme("blue")
+        
+        # 🚨 CORREÇÃO: Cria e executa a instância da classe App
+        app = App()
+        app.mainloop()
+        
     except KeyboardInterrupt:
-        logging.info("\nAplicação encerrada pelo usuário (Ctrl+C).")
+        logger.info("\nAplicação encerrada pelo usuário (Ctrl+C).")
         sys.exit(0)
     except Exception as e:
-        logging.error(f"Erro fatal durante a execução da aplicação: {e}")
+        logger.critical(f"Erro fatal durante a execução da aplicação: {e}")
         sys.exit(1)
         
     sys.exit(0)

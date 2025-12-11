@@ -1,115 +1,58 @@
 import os
-import shutil
 import logging
-from typing import Tuple, List
+import sys
+from typing import Tuple, List, Dict, Any
 
-# Importação revisada para incluir as novas funções de otimização
-from src.utils.system import get_temp_paths, set_power_plan, execute_windows_command, format_bytes, terminate_processes, OPT_PROCESSES_TO_KILL
-
-# Configura o logger para ser usado neste módulo
-logger = logging.getLogger('BlazeScan') 
-
-def get_dir_size(path: str) -> int:
-    # ... (função get_dir_size permanece a mesma) ...
-    total_size = 0
-    if not os.path.isdir(path):
-        return 0
+# Importa as funções e constantes dos utilitários
+from src.utils.system import (
+    get_temp_paths, 
+    set_power_plan, 
+    optimize_disk, 
+    terminate_processes, 
+    format_bytes,
     
-    for dirpath, dirnames, filenames in os.walk(path):
-        for f in filenames:
-            fp = os.path.join(dirpath, f)
-            if not os.path.islink(fp):
-                try:
-                    total_size += os.path.getsize(fp)
-                except OSError as e:
-                    logger.warning(f"Não foi possível obter o tamanho do arquivo '{fp}'. Ignorando. Erro: {e}")
-                    pass
-    return total_size
-
-def clean_directory(path: str) -> int:
-    # ... (função clean_directory permanece a mesma com a proteção de segurança) ...
-    total_size_cleaned = 0
-    if not os.path.isdir(path):
-        logger.info(f"Diretório não encontrado ou inválido: {path}")
-        return 0
-
-    # ====================================================================
-    # 🚨 VERIFICAÇÃO DE SEGURANÇA CRÍTICA 🚨
-    absolute_path = os.path.abspath(path)
+    # 🚨 CORREÇÃO: clean_directory precisa ser importado do system.py 🚨
+    clean_directory, 
     
-    critical_roots = [
-        os.path.abspath(os.environ.get('SystemRoot', 'C:\\Windows')),
-        os.path.abspath(os.path.join(os.environ.get('SystemRoot', 'C:\\Windows'), 'System32')),
-        os.path.abspath("C:\\"),
-        os.path.abspath(os.environ.get('ProgramFiles', 'C:\\Program Files')),
-        os.path.abspath(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)')),
-    ]
+    OPT_PROCESSES_TO_KILL
+)
 
-    if absolute_path in critical_roots:
-        logger.critical(f"TENTATIVA DE ACESSO CRÍTICO: O caminho '{path}' é uma pasta vital do Windows. Limpeza Abortada.")
-        return 0
-    # ====================================================================
-    
-    logger.info(f"Iniciando limpeza no diretório: {path}")
+logger = logging.getLogger('BlazeScan')
 
-    items_to_delete = [os.path.join(path, item) for item in os.listdir(path)]
 
-    for item_path in items_to_delete:
-        try:
-            size_to_delete = 0
-            
-            if os.path.isfile(item_path) or os.path.islink(item_path):
-                try:
-                    size_to_delete = os.path.getsize(item_path)
-                    os.remove(item_path)
-                    logger.info(f" - REMOVIDO Arquivo: {os.path.basename(item_path)}")
-                except OSError:
-                    pass
-                
-            elif os.path.isdir(item_path):
-                try:
-                    size_to_delete = get_dir_size(item_path)
-                    shutil.rmtree(item_path)
-                    logger.info(f" - REMOVIDO Diretório: {os.path.basename(item_path)} e conteúdo.")
-                except OSError:
-                    pass
+# ====================================================================
+# FUNÇÕES DE EXECUÇÃO ESPECÍFICA (Responsabilidade Única)
+# ====================================================================
 
-            total_size_cleaned += size_to_delete
-
-        except Exception as e:
-            logger.warning(f" - FALHOU ao remover '{os.path.basename(item_path)}'. Motivo: {e}")
-            pass
-            
-    logger.info(f"Limpeza de '{path}' finalizada. Total liberado: {format_bytes(total_size_cleaned)}")
-    return total_size_cleaned
-
-def perform_cleanup() -> Tuple[bool, str, str]:
-    """
-    Executa a limpeza de arquivos temporários, encerra processos e otimiza o plano de energia.
-    Retorna (sucesso_geral, mensagem_log, tamanho_limpo_formatado).
-    """
+def cleanup_temp_files(messages: List[str]) -> int:
+    """Executa a limpeza de arquivos temporários."""
     total_cleaned_bytes = 0
-    messages: List[str] = []
-    
-    logger.info("=" * 40)
-    logger.info("INICIANDO OPERAÇÃO BLAZESCAN")
-    logger.info("=" * 40)
-
-    # --- 1. Limpeza de Arquivos Temporários ---
     logger.info("--- 1. Limpeza de Arquivos Temporários ---")
     messages.append("--- 1. Limpeza de Arquivos Temporários ---")
     
-    temp_paths = get_temp_paths() 
+    # Assumindo que get_temp_paths retorna Dict[str, str] (Nome: Caminho)
+    temp_paths_map = get_temp_paths() 
     
-    for path in temp_paths:
-        cleaned_size = clean_directory(path) 
-        total_cleaned_bytes += cleaned_size
-        
-        messages.append(f"Limpeza em '{os.path.basename(path)}' concluída. Liberado: {format_bytes(cleaned_size)}")
+    for name, path in temp_paths_map.items():
+        if os.path.exists(path):
+            # clean_directory AGORA ESTÁ IMPORTADO
+            try:
+                cleaned_size = clean_directory(path) 
+                total_cleaned_bytes += cleaned_size
+                messages.append(f"Limpeza em '{name}' concluída. Liberado: {format_bytes(cleaned_size)}")
+            except Exception as e:
+                 # Adiciona um tratamento de erro mais robusto caso a limpeza falhe
+                 logger.error(f"Falha crítica ao limpar '{name}' ({path}): {e}")
+                 messages.append(f"Limpeza em '{name}' falhou. Erro: {e}")
 
-    # ====================================================================
-    # 🆕 NOVO: 2. Encerramento de Processos de Otimização
-    # ====================================================================
+        else:
+            logger.debug(f"Caminho não encontrado para limpeza: {name}")
+
+    return total_cleaned_bytes
+
+
+def cleanup_terminate_processes(messages: List[str]):
+    """Encerra processos específicos para otimização."""
     logger.info("\n--- 2. Encerramento de Processos de Otimização ---")
     messages.append("\n--- 2. Encerramento de Processos de Otimização ---")
     
@@ -119,31 +62,87 @@ def perform_cleanup() -> Tuple[bool, str, str]:
         messages.append(f"Processos encerrados com sucesso: {', '.join(terminated_list)}")
     else:
         messages.append("Nenhum processo de otimização encontrado ou encerrado.")
-        
-    # --- 3. Otimização de Energia (Antigo 2) ---
+
+
+def cleanup_power_plan(messages: List[str], settings: Dict[str, Any]):
+    """Define o plano de energia com base nas configurações da UI."""
     logger.info("\n--- 3. Otimização de Energia ---")
     messages.append("\n--- 3. Otimização de Energia ---")
     
-    success_power, msg_power = set_power_plan("MAXIMUM_PERFORMANCE")
+    # Obtém a chave do plano de energia das configurações (ex: "MAXIMUM_PERFORMANCE")
+    plan_key = settings.get("energy_plan", "NONE") 
     
-    if not success_power:
-        logger.warning("Falha ao definir Desempenho Máximo. Tentando Alto Desempenho...")
-        success_power, msg_power = set_power_plan("HIGH_PERFORMANCE")
+    if plan_key != "NONE":
+        success_power, msg_power = set_power_plan(plan_key)
         
-    messages.append(f"Resultado: {msg_power}")
+        # Lógica de fallback se MAXIMUM_PERFORMANCE falhar (opcional, mas robusta)
+        if not success_power and plan_key == "MAXIMUM_PERFORMANCE":
+            logger.warning("Falha no Desempenho Máximo. Tentando Alto Desempenho como fallback...")
+            success_power, msg_power = set_power_plan("HIGH_PERFORMANCE")
+        
+        messages.append(f"Resultado: {msg_power}")
+    else:
+        messages.append("Plano de energia não alterado por opção do utilizador.")
 
-    # --- 4. Otimizações Adicionais (Antigo 3) ---
-    logger.info("\n--- 4. Otimizações Adicionais (Ação Manual Recomendada) ---")
-    messages.append("\n--- 4. Otimizações Adicionais (Requer Ação Manual/Admin) ---")
+
+def cleanup_disk_optimization(messages: List[str], settings: Dict[str, Any]):
+    """Executa a otimização de disco (defrag/TRIM) se configurado."""
+    logger.info("\n--- 4. Otimização de Disco (SSD/HDD) ---")
+    messages.append("\n--- 4. Otimização de Disco ---")
+
+    if settings.get("optimize_disk", False):
+        if not sys.platform.startswith('win'):
+            messages.append("Otimização de disco ignorada: Apenas suportado no Windows.")
+        else:
+            # Chama a função de otimização para a unidade C:
+            success_disk, msg_disk = optimize_disk("C") 
+            messages.append(f"Resultado: {msg_disk}")
+    else:
+        messages.append("Otimização de disco C:\\ ignorada por opção do utilizador.")
+
+
+def cleanup_additional_info(messages: List[str]):
+    """Adiciona informações sobre otimizações manuais."""
+    logger.info("\n--- 5. Otimizações Adicionais (Ação Manual Recomendada) ---")
+    messages.append("\n--- 5. Otimizações Adicionais (Requer Ação Manual/Admin) ---")
     
     msg_msconfig = "Para otimizar o uso de núcleos/memória (msconfig), use o utilitário 'msconfig' (aba Inicialização do Sistema -> Opções Avançadas)."
-    msg_defrag = "Para otimizar o disco (SSD/HDD), execute o comando 'defrag C: /O' como Administrador."
     
     logger.info(msg_msconfig)
-    logger.info(msg_defrag)
     messages.append(msg_msconfig)
-    messages.append(msg_defrag)
+
+
+# ====================================================================
+# FUNÇÃO ORQUESTRADORA PRINCIPAL
+# ====================================================================
+
+def perform_cleanup(settings: Dict[str, Any]) -> Tuple[bool, str, str]:
+    """
+    Orquestra todas as etapas de limpeza e otimização.
+    """
+    total_cleaned_bytes = 0
+    messages: List[str] = []
     
+    logger.info("=" * 40)
+    logger.info("INICIANDO OPERAÇÃO BLAZESCAN")
+    logger.info(f"Configurações recebidas: {settings}")
+    logger.info("=" * 40)
+
+    # 1. Limpeza de Arquivos
+    total_cleaned_bytes += cleanup_temp_files(messages)
+
+    # 2. Encerramento de Processos
+    cleanup_terminate_processes(messages)
+    
+    # 3. Otimização de Energia
+    cleanup_power_plan(messages, settings)
+    
+    # 4. Otimização de Disco
+    cleanup_disk_optimization(messages, settings)
+    
+    # 5. Informações Adicionais
+    cleanup_additional_info(messages)
+
     # --- Conclusão ---
     formatted_size = format_bytes(total_cleaned_bytes)
     
@@ -153,7 +152,5 @@ def perform_cleanup() -> Tuple[bool, str, str]:
     
     final_message = "\n".join(messages)
     
+    # Define o sucesso geral como True, mesmo que processos ou disco falhem (a limpeza de arquivos é o foco)
     return True, final_message, formatted_size
-
-if __name__ == '__main__':
-    pass
